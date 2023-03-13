@@ -24,13 +24,15 @@ export class VPixel {
     public static readonly onColor = vec3.fromValues(1.0, 1.0, 1.0);
     public static readonly offColor = vec3.fromValues(0.0, 0.0, 0.0);
 
+    private static scale: number = 1.0;
+
     /**
      * 
      * @param width width of rendered image in pixels
      * @param vWidth width of vPixels in display
      */
-    public static calculateScale(width: number, vWidth: number): number {
-        return width / vWidth;
+    public static calculateScale(width: number, vWidth: number) {
+        VPixel.scale = width / vWidth;
     }
 
     // ======================
@@ -38,18 +40,15 @@ export class VPixel {
     // ======================
 
     private position: vec2 = vec2.create();
-    private scale: number;
+    // private scale: number;
 
     private renderPosition: vec3 = vec3.create();
 
     public on: boolean = false;
 
-    public constructor(x: number, y: number, scale: number) {
+    public constructor(x: number, y: number) {
         this.position[0] = x;
         this.position[1] = y;
-
-        this.scale = scale;
-
         this.calculateRenderPosition();
     }
 
@@ -58,7 +57,9 @@ export class VPixel {
     }
 
     public calculateRenderPosition(): void {
-        this.renderPosition = [this.position[0] * this.scale, this.position[1] * this.scale, 0.0];
+        const x = (this.position[0] * VPixel.scale);
+        const y = (this.position[1] * VPixel.scale) + VPixel.scale;
+        this.renderPosition = [x, y, 0.0];
     }
 
     public getModelMat4(): mat4 {
@@ -68,7 +69,7 @@ export class VPixel {
         mat4.translate(modelMatrix, modelMatrix, this.renderPosition);
 
         // Scale
-        mat4.scale(modelMatrix, modelMatrix, [this.scale, this.scale, this.scale]);
+        mat4.scale(modelMatrix, modelMatrix, [VPixel.scale, VPixel.scale, 1.0]);
 
         return modelMatrix;
     }
@@ -113,12 +114,17 @@ export default class Display {
         const height = width / Display.ASPECT_RATIO
         this.canvas.height = height;
 
-        console.log(`Width: ${width}px, Height: ${height}px`);
-
         this.gl.viewport(0, 0, width, height);
         this.gl.scissor(0, 0, width, height);
         mat4.ortho(this.projectionMatrix, 0, width, height, 0, -1000, 1000);
         mat4.lookAt(this.viewMatrix, [0, 0, 1], [0, 0, 0], [0, 1, 0]);
+
+        VPixel.calculateScale(width, Display.vWidth);
+        for (const vPixel of this.vPixels) {
+            vPixel.calculateRenderPosition();
+        }
+
+        this.render();
     }
 
     public static createForCanvas(canvas: HTMLCanvasElement): Display {
@@ -213,14 +219,10 @@ export default class Display {
     }
 
     private makeVPixelArray() {
-        const scale = VPixel.calculateScale(this.canvas.width, Display.vWidth);
-
-        let isOn = false;
+        VPixel.calculateScale(this.canvas.width, Display.vWidth);
         for (let row = 0; row < Display.vHeight; row++) {
             for (let col = 0; col < Display.vWidth; col++) {
-                const vPixel = new VPixel(col, row, scale);
-                vPixel.on = isOn;
-                isOn = !isOn;
+                const vPixel = new VPixel(col, row);
                 this.vPixels.push(vPixel);
             }
         }
@@ -230,10 +232,63 @@ export default class Display {
         await this.loadShaderProgram();
         this.loadVPixelRenderData();
         this.makeVPixelArray();
+
+        window.addEventListener('resize', (_ev) => {
+            this.resizeViewport();
+        });
     }
 
-    public draw() {
-        this.gl.clearColor(1.0, 0.0, 0.0, 1.0);
+    /**
+     * Toggles a VPixel
+     * @param x x-coordinate of pixel to toggle
+     * @param y y-coordinate of pixel to toggle
+     * @returns true if the pixel was toggled from 'on' to 'off'; false otherwise
+     */
+    public toggleVPixel(x: number, y: number): boolean {
+        const index = (y * Display.vWidth) + x;
+        const vPixel = this.vPixels[index];
+
+        vPixel.on = !vPixel.on;
+
+        return !vPixel.on;
+    }
+
+    /**
+     * Toggles vPixels in a checkerboard pattern
+     */
+    public showTestPattern() {
+        for (let row = 0; row < Display.vHeight; row++) {
+            for (let col = 0; col < Display.vWidth; col++) {
+                if (row % 2 === 0) {
+                    if (col % 2 === 0) {
+                        this.toggleVPixel(col, row);
+                    }
+                } else {
+                    if (col % 2 !== 0) {
+                        this.toggleVPixel(col, row);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Clears the virtual display
+     */
+    public clear() {
+        for (const vPixel of this.vPixels) {
+            vPixel.on = false;
+        }
+
+        this.render();
+    }
+
+    public render() {
+        if (!this.shaderProgram) {
+            return;
+        }
+
+        this.gl.clearColor(1.0, 0.0, 1.0, 1.0);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         this.gl.useProgram(this.shaderProgram);
@@ -257,5 +312,7 @@ export default class Display {
             this.gl.bindVertexArray(null);
         }
         this.gl.useProgram(null);
+
+        this.gl.flush();
     }
 }
