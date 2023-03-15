@@ -1,12 +1,24 @@
 <script lang="ts">
     import Chip8 from "$lib/emulator";
     import { onMount } from "svelte";
+    import { run } from "svelte/internal";
     import Display from "../lib/rendering";
 
     let canvas: HTMLCanvasElement;
     let filePicker: HTMLInputElement;
     let display: Display;
     let chip8: Chip8 | null = null;
+
+    function runEmu() {
+        if (!chip8) {
+            console.error("Emulator must be constructed to run");
+            return;
+        }
+
+        setInterval(() => {
+            chip8?.step();
+        }, 1 / Chip8.DEFAULT_IPS);
+    }
 
     async function handleROMFile(ev: Event) {
         if (!chip8) {
@@ -29,7 +41,7 @@
         }
 
         console.log(`Loaded ROM: ${romFile.name}`);
-        console.dir(chip8);
+        runEmu();
     }
 
     onMount( async () => {
