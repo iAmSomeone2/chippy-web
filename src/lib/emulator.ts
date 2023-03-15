@@ -5,6 +5,20 @@ enum ArgLayout {
     XYZ,
 }
 
+enum Keypad {
+    Key1 = 0x1, Key2 = 0x2, Key3 = 0x3, KeyC = 0xC,
+    Key4 = 0x4, Key5 = 0x5, Key6 = 0x6, KeyD = 0xD,
+    Key7 = 0x7, Key8 = 0x8, Key9 = 0x9, KeyE = 0xE,
+    KeyA = 0xA, Key0 = 0x0, KeyB = 0xB, KeyF = 0xF
+}
+
+const inputMap = new Map<string, Keypad>([
+    ['Digit1', Keypad.Key1], ['Digit2', Keypad.Key2], ['Digit3', Keypad.Key3], ['Digit4', Keypad.KeyC],
+    ['KeyQ', Keypad.Key4],   ['KeyW', Keypad.Key5],   ['KeyE', Keypad.Key6],   ['KeyR', Keypad.KeyD],
+    ['KeyA', Keypad.Key7],   ['KeyS', Keypad.Key8],   ['KeyD', Keypad.Key9],   ['KeyF', Keypad.KeyE],
+    ['KeyZ', Keypad.KeyA],   ['KeyX', Keypad.Key0],   ['KeyC', Keypad.KeyB],   ['KeyV', Keypad.KeyF],
+]);
+
 const INSTRUCTION_SIZE = 2;
 const UINT8_MAX = 255;
 
@@ -64,6 +78,8 @@ export default class Chip8 {
     private memory: Uint8Array = new Uint8Array(Chip8.MEM_SIZE);
 
     private awaitingKey = false;
+    private keypadRegister: number | null = null;
+    private pressedKeys = new Set<Keypad>();
 
     constructor(display: Display) {
         this.display = display;
@@ -74,7 +90,7 @@ export default class Chip8 {
 
         setInterval(() => {
             this.decrementTimers();
-        }, 17); // Timeout has to be a 32-bit UInt. I elected to round up from 16.6667.
+        }, 1000 / 60);
     }
 
     private loadFontData() {
@@ -94,6 +110,8 @@ export default class Chip8 {
         this.pc = Chip8.START_ADDR;
         this.i = 0;
         this.awaitingKey = false;
+        this.keypadRegister = null;
+        this.pressedKeys = new Set<Keypad>();
         this.loadFontData();
 
         this.display.clear();
@@ -111,6 +129,30 @@ export default class Chip8 {
             const writeLoc = Chip8.START_ADDR + i;
             this.memory[writeLoc] = rom[i];
         }
+    }
+
+    public handleKeyDown(code: string) {
+        const keypad = inputMap.get(code);
+        if (keypad === undefined) {
+            return;
+        }
+
+        this.pressedKeys.add(keypad);
+
+        if (this.awaitingKey && this.keypadRegister) {
+            this.v[this.keypadRegister] = keypad;
+            this.awaitingKey = false;
+            this.keypadRegister = null;
+        }
+    }
+
+    public handleKeyUp(code: string) {
+        const keypad = inputMap.get(code);
+        if (!keypad) {
+            return;
+        }
+
+        this.pressedKeys.delete(keypad);
     }
 
     /**
@@ -346,6 +388,10 @@ export default class Chip8 {
                 // Set VX to value in delayTimer
                 this.v[idxX] = this.delayTimer;
                 break;
+            case 0x0A:
+                this.awaitingKey = true;
+                this.keypadRegister = idxX;
+                break;
             case 0x15:
                 // Set delay timer to VX
                 this.delayTimer = this.v[idxX];
@@ -379,8 +425,33 @@ export default class Chip8 {
         }
     }
 
+    private inputBranching(args: number) {
+        const [idxX, n] = Chip8.splitArgs(args, ArgLayout.XNN);
+        const expectedKey = this.v[idxX] as Keypad;
+        switch (n) {
+            case 0x9E:
+                // Skips the next instruction if the key stored in VX is pressed
+                if (this.pressedKeys.has(expectedKey)) {
+                    this.pc += INSTRUCTION_SIZE;
+                }
+                break;
+            case 0xA1:
+                // Skips the next instruction if the key stored in VX is not pressed
+                if (!this.pressedKeys.has(expectedKey)) {
+                    this.pc += INSTRUCTION_SIZE;
+                }
+                break;
+            default:
+                console.warn(`Unrecognized input branch op: 0xE${args.toString(16)}`);
+        }
+    }
+
     public step() {
-        // console.log(`PC: ${this.pc}`);
+        if (this.awaitingKey) {
+            // Skip step if awaiting keypress
+            return;
+        }
+
         const opcode = this.readWord();
         // Get first 4 bits for category
         const category = opcode >> 12;
@@ -450,6 +521,10 @@ export default class Chip8 {
             case 0xD:
                 // Draw sprite
                 this.drawSprite(args);
+                break;
+            case 0xE:
+                // Branch on inpu
+                this.inputBranching(args);
                 break;
             case 0xF:
                 // Misc. ops

@@ -49,6 +49,24 @@
         await loadROM();
     }
 
+    function initInputCapture() {
+        document.addEventListener('keydown', (keyEv) => {
+            if (keyEv.isComposing || keyEv.keyCode === 229) {
+                return;
+            }
+
+            chip8?.handleKeyDown(keyEv.code);
+        });
+
+        document.addEventListener('keyup', (keyEv) => {
+            if (keyEv.isComposing || keyEv.keyCode === 229) {
+                return;
+            }
+
+            chip8?.handleKeyUp(keyEv.code);
+        });
+    }
+
     onMount( async () => {
         filePicker.addEventListener("change", handleROMFile);
         
@@ -64,6 +82,8 @@
         chip8 = new Chip8(display);
         // Enable filePicker now that the emulator is constructed
         filePicker.disabled = false;
+
+        initInputCapture();
 
         resetButton.addEventListener('click', async (_ev) => {
             chip8?.reset();
