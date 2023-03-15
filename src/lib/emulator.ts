@@ -33,7 +33,7 @@ const FONT_CHAR_WIDTH = 5;
 
 export default class Chip8 {
     /** Default number of instructions per second */
-    public static readonly DEFAULT_IPS = 10;
+    public static readonly DEFAULT_IPS = 500;
 
     private static readonly MEM_SIZE = 4096;
     private static readonly MAX_ROM_SIZE = 3232;
@@ -63,6 +63,8 @@ export default class Chip8 {
     /** System memory */
     private memory: Uint8Array = new Uint8Array(Chip8.MEM_SIZE);
 
+    private awaitingKey = false;
+
     constructor(display: Display) {
         this.display = display;
         this.sp = this.stack.length - 1;
@@ -91,6 +93,7 @@ export default class Chip8 {
         this.memory = new Uint8Array(Chip8.MEM_SIZE);
         this.pc = Chip8.START_ADDR;
         this.i = 0;
+        this.awaitingKey = false;
         this.loadFontData();
 
         this.display.clear();
@@ -277,6 +280,16 @@ export default class Chip8 {
         }
     }
 
+    private randByte(args: number) {
+        const [regIdx, immediate] = Chip8.splitArgs(args, ArgLayout.XNN);
+
+        let randByte = Math.random() * 255;
+        randByte -= (randByte % 1);
+        randByte &= immediate;
+
+        this.v[regIdx] = randByte;
+    }
+
     private drawSprite(args: number) {
         const [idxX, idxY, height] = Chip8.splitArgs(args, ArgLayout.XYZ);
         const x = this.v[idxX];
@@ -315,6 +328,17 @@ export default class Chip8 {
         }
     }
 
+    private setBCD(vIdx: number) {
+        const num = this.v[vIdx];
+        const ones = num % 10;
+        const tens = ((num - ones) % 100);
+        const hundreds = ((num - (tens + ones)) % 1000);
+
+        this.memory[this.i] = hundreds / 100;
+        this.memory[this.i + 1] = tens / 10;
+        this.memory[this.i + 2] = ones;
+    }
+
     private miscOps(args: number) {
         const [idxX, n] = Chip8.splitArgs(args, ArgLayout.XNN);
         switch(n) {
@@ -337,6 +361,10 @@ export default class Chip8 {
             case 0x29:
                 // Set I to the location of the sprite for the char in VX
                 this.i = this.v[idxX] * FONT_CHAR_WIDTH;
+                break;
+            case 0x33:
+                // Store the binary-coded decimal representation of VX
+                this.setBCD(idxX);
                 break;
             case 0x55:
                 // Dump registers to memory
@@ -414,6 +442,10 @@ export default class Chip8 {
             case 0xB:
                 // Jump to address NNN (args) plus V0
                 this.pc = this.v[0x0] + args;
+                break;
+            case 0xC:
+                // Set VX to a random number
+                this.randByte(args);
                 break;
             case 0xD:
                 // Draw sprite

@@ -1,11 +1,12 @@
 <script lang="ts">
     import Chip8 from "$lib/emulator";
     import { onMount } from "svelte";
-    import { run } from "svelte/internal";
     import Display from "../lib/rendering";
 
     let canvas: HTMLCanvasElement;
     let filePicker: HTMLInputElement;
+    let resetButton: HTMLButtonElement;
+    let romFile: File | null = null;
     let display: Display;
     let chip8: Chip8 | null = null;
 
@@ -17,7 +18,20 @@
 
         setInterval(() => {
             chip8?.step();
-        }, 1 / Chip8.DEFAULT_IPS);
+        }, 1000 / Chip8.DEFAULT_IPS);
+    }
+
+    async function loadROM() {
+        try {
+            const romData = new Uint8Array(await romFile!!.arrayBuffer());
+            chip8?.loadROM(romData);
+        } catch (reason) {
+            console.error(`Failed to load ROM file: ${reason}`);
+            return;
+        }
+
+        console.log(`Loaded ROM: ${romFile?.name}`);
+        runEmu();
     }
 
     async function handleROMFile(ev: Event) {
@@ -27,21 +41,12 @@
         }
 
         const fileInput = ev.currentTarget as HTMLInputElement;
-        const romFile = fileInput.files?.item(0);
+        romFile = fileInput.files?.item(0) ?? null;
         if (!romFile) {
             return;
         }
 
-        try {
-            const romData = new Uint8Array(await romFile.arrayBuffer());
-            chip8.loadROM(romData);
-        } catch (reason) {
-            console.error(`Failed to load ROM file: ${reason}`);
-            return;
-        }
-
-        console.log(`Loaded ROM: ${romFile.name}`);
-        runEmu();
+        await loadROM();
     }
 
     onMount( async () => {
@@ -59,6 +64,11 @@
         chip8 = new Chip8(display);
         // Enable filePicker now that the emulator is constructed
         filePicker.disabled = false;
+
+        resetButton.addEventListener('click', async (_ev) => {
+            chip8?.reset();
+            await loadROM();
+        });
     });
 </script>
 
@@ -73,6 +83,8 @@
                 type="file"
                 id="rom-picker"
                 accept=".bin,.ch8,application/octet-stream" />
+            <div class="spacer"></div>
+            <button bind:this={resetButton}>Reset</button>
         </div>
         <div class="spacer"></div>
     </div>
