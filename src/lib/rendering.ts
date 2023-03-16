@@ -80,9 +80,9 @@ export default class Display {
     private static readonly ASPECT_RATIO = 2;
 
     /** Display width in VPixels */
-    private static readonly vWidth = 64;
+    public static readonly vWidth = 64;
     /** Display height in VPixels */
-    private static readonly vHeight = 32;
+    public static readonly vHeight = 32;
 
     private vPixels: Array<VPixel> = [];
 

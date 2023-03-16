@@ -1,4 +1,4 @@
-import type Display from "./rendering";
+import Display from "./rendering";
 
 enum ArgLayout {
     XNN,
@@ -77,9 +77,15 @@ export default class Chip8 {
     /** System memory */
     private memory: Uint8Array = new Uint8Array(Chip8.MEM_SIZE);
 
+    // Input handling state
     private awaitingKey = false;
     private keypadRegister: number | null = null;
     private pressedKeys = new Set<Keypad>();
+
+    // Audio output state
+    private audioCtx: AudioContext = new AudioContext({latencyHint: 'interactive'});
+    private buzzer: OscillatorNode | null = null;
+    private isBuzzing = false;
 
     constructor(display: Display) {
         this.display = display;
@@ -91,6 +97,22 @@ export default class Chip8 {
         setInterval(() => {
             this.decrementTimers();
         }, 1000 / 60);
+    }
+
+    private startBuzzer() {
+        this.buzzer = this.audioCtx.createOscillator();
+        this.buzzer.type = 'square';
+        this.buzzer.connect(this.audioCtx.destination);
+        this.buzzer.start();
+
+        this.isBuzzing = true;
+    }
+
+    private stopBuzzer() {
+        this.buzzer?.stop();
+        this.buzzer = null;
+
+        this.isBuzzing = false;
     }
 
     private loadFontData() {
@@ -113,6 +135,10 @@ export default class Chip8 {
         this.keypadRegister = null;
         this.pressedKeys = new Set<Keypad>();
         this.loadFontData();
+
+        if (this.isBuzzing) {
+            this.stopBuzzer();
+        }
 
         this.display.clear();
     }
@@ -165,6 +191,10 @@ export default class Chip8 {
 
         if (this.soundTimer > 0) {
             this.soundTimer -= 1;
+        } else {
+            if (this.isBuzzing) {
+                this.stopBuzzer();
+            }
         }
     }
 
@@ -334,8 +364,8 @@ export default class Chip8 {
 
     private drawSprite(args: number) {
         const [idxX, idxY, height] = Chip8.splitArgs(args, ArgLayout.XYZ);
-        const x = this.v[idxX];
-        const y = this.v[idxY];
+        const x = this.v[idxX] % Display.vWidth;
+        const y = this.v[idxY] % Display.vHeight;
 
         for (let row = 0; row < height; row++) {
             const readLoc = this.i + row;
@@ -399,6 +429,9 @@ export default class Chip8 {
             case 0x18:
                 // Set sound timer to VX
                 this.soundTimer = this.v[idxX];
+                if (!this.isBuzzing && this.soundTimer > 0) {
+                    this.startBuzzer();
+                }
                 break;
             case 0x1E:
                 // Add VX to I
